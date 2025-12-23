@@ -10,18 +10,20 @@ For every .avi in autolabeler/data:
 
 from __future__ import annotations
 
-import cv2
-import numpy as np
+import argparse
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
+
+import cv2
+import numpy as np
 
 
 # Paths and thresholds for inputs/outputs and white-frame filtering
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT_DIR / "data"
-OUTPUT_DIR = Path(__file__).resolve().parent / "output_frames"
-RESULTS_FILE = Path(__file__).resolve().parent / "frame_results.txt"
-LIST_FILE = Path(__file__).resolve().parent / "selected_frames.txt"
+DEFAULT_DATA_DIR = ROOT_DIR / "data"
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "output_frames"
+DEFAULT_RESULTS_FILE = Path(__file__).resolve().parent / "frame_results.txt"
+DEFAULT_LIST_FILE = Path(__file__).resolve().parent / "selected_frames.txt"
 WHITE_THRESHOLD = 250.0  # mean brightness above this is treated as white/ignored
 
 
@@ -215,7 +217,9 @@ def save_target_frames(
 
 
 def write_results(
-    results: List[Tuple[Path, List[Tuple[int, str, float]], List[Path], List[Tuple[int, int]]]]
+    results: List[Tuple[Path, List[Tuple[int, str, float]], List[Path], List[Tuple[int, int]]]],
+    results_file: Path,
+    list_file: Path,
 ) -> None:
     """
     Write a text summary grouped by video.
@@ -255,12 +259,12 @@ def write_results(
             list_lines.append("No frames saved")
         list_lines.append("")
 
-    RESULTS_FILE.write_text("\n".join(lines))
-    LIST_FILE.write_text("\n".join(list_lines))
+    results_file.write_text("\n".join(lines))
+    list_file.write_text("\n".join(list_lines))
 
 
 def process_video(
-    video_path: Path,
+    video_path: Path, output_dir: Path
 ) -> Tuple[Path, List[Tuple[int, str, float]], List[Path], List[Tuple[int, int]]]:
     """Handle one video: brightness series, extrema sequence, saved frames, white runs."""
     # Measure brightness per frame
@@ -277,7 +281,7 @@ def process_video(
     extrema_with_values = [(idx, label, brightness[idx]) for idx, label in sequence]
 
     # Save selected frames and return metadata
-    dest_dir = OUTPUT_DIR / video_path.stem
+    dest_dir = output_dir / video_path.stem
     saved_paths = save_target_frames(video_path, sequence, dest_dir)
     return video_path, extrema_with_values, saved_paths, white_runs
 
@@ -286,25 +290,57 @@ def find_videos(data_dir: Path) -> List[Path]:
     return sorted([p for p in data_dir.iterdir() if p.suffix.lower() == ".avi"])
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Find alternating brightest/dimmest frames in heart videos.",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help="Folder containing input .avi files (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Folder to write extracted frames (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--results-file",
+        type=Path,
+        default=DEFAULT_RESULTS_FILE,
+        help="Path to write summary results (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--frame-list",
+        type=Path,
+        default=DEFAULT_LIST_FILE,
+        help="Path to write frame list (default: %(default)s)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Walk all videos, collect results, and write reports."""
-    videos = find_videos(DATA_DIR)
+    args = parse_args()
+    videos = find_videos(args.data_dir)
     if not videos:
-        print(f"No .avi files found in {DATA_DIR}")
+        print(f"No .avi files found in {args.data_dir}")
         return
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     all_results: List[
         Tuple[Path, List[Tuple[int, str, float]], List[Path], List[Tuple[int, int]]]
     ] = []
     for video in videos:
         print(f"Processing {video.name}...")
-        all_results.append(process_video(video))
+        all_results.append(process_video(video, args.output_dir))
 
-    write_results(all_results)
-    print(f"Summary written to {RESULTS_FILE}")
-    print(f"Frame list written to {LIST_FILE}")
-    print(f"Extracted frames under {OUTPUT_DIR}")
+    write_results(all_results, args.results_file, args.frame_list)
+    print(f"Summary written to {args.results_file}")
+    print(f"Frame list written to {args.frame_list}")
+    print(f"Extracted frames under {args.output_dir}")
 
 
 if __name__ == "__main__":
